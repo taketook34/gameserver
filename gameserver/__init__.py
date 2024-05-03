@@ -8,9 +8,10 @@ from config import Config
 
 app = Flask(__name__)
 app.config.from_object(Config)
-
+app.config['FILES_FOLDER'] = 'assets'
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
+
 
 
 from gameserver import views

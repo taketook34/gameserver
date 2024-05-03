@@ -4,9 +4,13 @@ from passlib.hash import pbkdf2_sha256
 from marshmallow import ValidationError
 from flask_jwt_extended import JWTManager, jwt_required
 from flask_jwt_extended import create_access_token, jwt_required, verify_jwt_in_request
+import os
+import random
 
 from gameserver.serializers import UserSchema, UserLoginSchema
-from gameserver.models import User
+from gameserver.models import User, TicTacToeGame
+from gamespackage.tictactoe import TicTacToeSession, CageIsFilledError, FileIsExists
+
 
 jwt = JWTManager(app)
 
@@ -69,6 +73,7 @@ def register():
     return jsonify({"message": "succes", "user_data": user_data})
 
 @app.route('/user/all', methods=['GET'])
+@jwt_required()
 def showusers():
     to_return = {"users": []}
     with app.app_context():
@@ -88,7 +93,7 @@ def showusers():
 @app.route('/user/login', methods=['POST'])
 def login():
     data = request.get_json()
-
+    print(data)
     user_schema = UserLoginSchema()
     try:
         user_login = user_schema.load(data)
@@ -108,13 +113,76 @@ def login():
 
 
 @app.route('/tic-tac-toe/creategame', methods=['GET'])
+@jwt_required()
 def creategame():
-    return jsonify({"message": "Type your nick name for data"})
+    
+    jwt_claims = verify_jwt_in_request()
+    host_id = jwt_claims[1]["sub"]
+
+    with app.app_context():
+        new_game = TicTacToeGame(
+            game_token=os.urandom(6).hex(),
+            user_host_id = host_id
+        )
+
+        db.session.add(new_game)
+        db.session.commit()
+
+        session = TicTacToeSession(filename_token=new_game.game_token, is_new=True, folder_name=app.config['FILES_FOLDER'])
+        session.commit()
+
+        message = {
+            "id": new_game.id, 
+            "game_token": new_game.game_token,
+            "user_host_id": new_game.user_host_id,
+            "is_game_started": new_game.is_game_started,
+            "turn": new_game.game_turn,
+            "date": new_game.created_at,
+        }
+
+    return jsonify(message)
 
 
+@app.route('/tic-tac-toe/all', methods=['GET'])
+@jwt_required()
+def allgames():
+    message = []
+    with app.app_context():
+        games = TicTacToeGame.query.all()
 
-@app.route('/tic-tac-toe/joingame/<game_token>', methods=['GET'])
+        for game in games:
+            message.append({"id":game.id, "game_token":game.game_token, "host_id":game.user_host_id})
+        
+        return jsonify({'games': message})
+
+@app.route('/tic-tac-toe/joingame/<game_token>', methods=['PUT'])
 def joingame(game_token):
+    '''
+    ДОСТУП: Любой игрок кроме создателя
+    УСЛОВИЯ ДЛЯ ПРОВЕРКИ: Игра еще не началась, игра не закончилась, вводящий не создатель
+    подключает гостя в комнату, меняет параметры игры что бы игра началась
+
+    '''
+    jwt_claims = verify_jwt_in_request()
+    joiner_id = jwt_claims[1]["sub"]
+    
+    with app.app_context():
+        game_to_start = TicTacToeGame.query.filter_by(game_token=game_token).first()
+
+        if game_to_start:
+            if joiner_id == game_to_start.user_host_id:
+                return jsonify({"error": f"Host cant be a guest!"})
+            
+            if game_to_start.is_game_started == 1 or game_to_start.is_game_ended == 1:
+                return jsonify({"error": f"Game is not available"})
+            
+            
+            game_to_start.user_guest_id = joiner_id
+            game_to_start.is_game_started = 1
+            game_to_start.user_turn = random.randint(0, 1)
+
+            db.session.add(game_to_start)
+            db.session.commit()
 
     return jsonify({"message": f"You conneted to {game_token} game"})
 
@@ -141,10 +209,31 @@ def gameinfo(game_token):
 
 
 
-@app.route('/tic-tac-toe/deletegame/<game_token>', methods=['GET'])
+@app.route('/tic-tac-toe/deletegame/<game_token>', methods=['DELETE'])
+@jwt_required()
 def deletegame(game_token):
     '''
     ДОСТУП: игрок хост и игрок гость  (проверять по токену) 
     удаление игры (удаление записи в базе данных)
     '''
-    return jsonify({"message": "Type your nick name for data"})
+    jwt_claims = verify_jwt_in_request()
+    deleter_id = jwt_claims[1]["sub"]
+
+    with app.app_context():
+        game_to_delete = TicTacToeGame.query.filter_by(game_token=game_token).first()
+        if game_to_delete:
+
+            if game_to_delete.user_host_id == deleter_id:
+                # delete file from folder
+                session = TicTacToeSession(filename_token=game_to_delete.game_token, is_new=False, folder_name=app.config['FILES_FOLDER'])
+                session.deletegame()
+
+                db.session.delete(game_to_delete)
+                db.session.commit()
+
+            else:
+                return jsonify({"error": "You cannot delete game!"})
+        else:
+            return jsonify({"error": "Game with this token doesn\'t exist"})
+
+    return jsonify({"message": f"Succes deletion game {game_token}"})

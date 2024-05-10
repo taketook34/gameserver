@@ -7,11 +7,11 @@ from flask_jwt_extended import create_access_token, jwt_required, verify_jwt_in_
 import os
 import random
 
-from gameserver.serializers import UserSchema, UserLoginSchema
+from gameserver.serializers import UserSchema, UserLoginSchema, TicTacToeGameTurnSchema
 from gameserver.models import User, TicTacToeGame
 from gamespackage.tictactoe import TicTacToeSession, CageIsFilledError, FileIsExists
 
-
+# invertor = lambda x: 1 if x == 0 else 0
 jwt = JWTManager(app)
 
 @jwt.expired_token_loader
@@ -63,11 +63,11 @@ def register():
         db.session.add(new_user)
         db.session.commit()
 
-    user_data = {
-        "id": new_user.id,
-        "nickname": new_user.nickname,
-        "email": new_user.email,
-    }
+        user_data = {
+            "id": new_user.id,
+            "nickname": new_user.nickname,
+            "email": new_user.email,
+        }
 
 
     return jsonify({"message": "succes", "user_data": user_data})
@@ -93,7 +93,6 @@ def showusers():
 @app.route('/user/login', methods=['POST'])
 def login():
     data = request.get_json()
-    print(data)
     user_schema = UserLoginSchema()
     try:
         user_login = user_schema.load(data)
@@ -118,7 +117,7 @@ def creategame():
     
     jwt_claims = verify_jwt_in_request()
     host_id = jwt_claims[1]["sub"]
-
+    # проверить не участвует ли юзер в дургих играх
     with app.app_context():
         new_game = TicTacToeGame(
             game_token=os.urandom(6).hex(),
@@ -156,6 +155,7 @@ def allgames():
         return jsonify({'games': message})
 
 @app.route('/tic-tac-toe/joingame/<game_token>', methods=['PUT'])
+@jwt_required()
 def joingame(game_token):
     '''
     ДОСТУП: Любой игрок кроме создателя
@@ -165,7 +165,7 @@ def joingame(game_token):
     '''
     jwt_claims = verify_jwt_in_request()
     joiner_id = jwt_claims[1]["sub"]
-    
+    # проверить не участвует ли юзер в других играх
     with app.app_context():
         game_to_start = TicTacToeGame.query.filter_by(game_token=game_token).first()
 
@@ -179,7 +179,8 @@ def joingame(game_token):
             
             game_to_start.user_guest_id = joiner_id
             game_to_start.is_game_started = 1
-            game_to_start.user_turn = random.randint(0, 1)
+            #game_to_start.user_turn = random.choice([game_to_start.user_host_id, game_to_start.user_guest_id]) 
+            game_to_start.user_turn = game_to_start.user_host_id # на время тестирования для четкого определния первого юзера
 
             db.session.add(game_to_start)
             db.session.commit()
@@ -188,24 +189,143 @@ def joingame(game_token):
 
 
 
-@app.route('/tic-tac-toe/game-turn/<game_token>', methods=['POST'])
+@app.route('/tic-tac-toe/game-turn/<game_token>', methods=['PUT'])
 def gameturn(game_token):
     '''
     ДОСТУП: игрок хост и игрок гост у которого ход (проверять по токену)
     Пользователь отправляет на сервер свое измение игровой карты
+    Проверить надо:
+        - пользователь или хост или гость
+        - заданая игра не закончена и начата
+        - проверить что ход соответсвует тому кому надо
+        - проверить что бы не было ошибок при записи
+        - проверить что бы после хода игра не закончилась
+        
     '''
-    return jsonify({"message": "Type your nick name for data"})
+    jwt_claims = verify_jwt_in_request()
+    gamer_id = jwt_claims[1]["sub"]
+    turn_data = request.get_json()
+
+    turn_schema = TicTacToeGameTurnSchema()
+    try:
+        turn_attempt = turn_schema.load(turn_data)
+    except ValidationError as err:
+        return jsonify({'error': err.messages}), 400
+
+
+    with app.app_context():
+        game_to_update = TicTacToeGame.query.filter_by(game_token=game_token).first()
+
+        if not game_to_update:
+            return jsonify({"error": "Game not found"})
+
+        if gamer_id != game_to_update.user_host_id and gamer_id != game_to_update.user_guest_id:
+            return jsonify({"error": "Game not found"})
+        
+        if game_to_update.is_game_started == 0:
+            return jsonify({"error": "Game not started"})
+        
+        if game_to_update.is_game_ended == 1:
+            return jsonify({"error": "Game is over"})
+        
+
+        if gamer_id != game_to_update.user_turn:
+            return jsonify({"error": "Not user turn"})
+
+        session = TicTacToeSession(filename_token=game_token, folder_name=app.config['FILES_FOLDER'])
+        try:     
+            session.update(turn_attempt['x'], turn_attempt['y'], gamer_id)
+        except  CageIsFilledError as error:
+            return  jsonify({"error": f"{error.message}"})
+        
+        game_data = session.loaded_data
+
+        session.commit()
+        
+        
+        if game_to_update.user_turn == game_to_update.user_host_id:
+            game_to_update.user_turn = game_to_update.user_guest_id
+        else:
+            game_to_update.user_turn = game_to_update.user_host_id
+
+        game_to_update.game_turn += 1
+
+        if session.check_winner():
+            game_to_update.is_game_ended = 1
+            game_to_update.winner = gamer_id
+
+        db.session.add(game_to_update)
+        db.session.commit()
+
+        message = {
+                    "id": game_to_update.id,
+                    "game_token": game_to_update.game_token,
+                    "is_game_started": game_to_update.is_game_started,
+                    "is_game_ended": game_to_update.is_game_ended,
+                    "user_host_id": game_to_update.user_host_id,
+                    "user_guest_id": game_to_update.user_guest_id,
+                    "user_turn": game_to_update.user_turn,
+                    "game_turn": game_to_update.game_turn,
+                    "game_data": game_data,
+                    "winner": game_to_update.winner,
+
+                }
+            
+
+    
+    return jsonify({"message": "Succesful attempt to make turn", "game_data": message})
 
 
 
 @app.route('/tic-tac-toe/game-info/<game_token>', methods=['GET'])
+@jwt_required()
 def gameinfo(game_token):
     '''
     ДОСТУП: игрок хост и игрок гост (проверять по токену)
     возвращение всех игровых данных сессии. если игра окончена то происходит выведение окончательных данных игры которые не изменяются
     '''
 
-    return jsonify({"message": "Type your nick name for data"})
+    jwt_claims = verify_jwt_in_request()
+    gamer_id = jwt_claims[1]["sub"]
+    
+    with app.app_context():
+        game_to_watch = TicTacToeGame.query.filter_by(game_token=game_token).first()
+
+        if game_to_watch:
+            if gamer_id == game_to_watch.user_host_id or gamer_id == game_to_watch.user_guest_id:
+                
+                # user_turn = 0
+                # if game_to_watch.user_turn == 0:
+                #     user_turn = game_to_watch.user_host_id
+                # else:
+                #     user_turn = game_to_watch.user_guest_id
+
+
+                # download data using module
+                session = TicTacToeSession(filename_token=game_token, folder_name=app.config['FILES_FOLDER'])
+                game_data = session.loaded_data
+
+                message = {
+                    "id": game_to_watch.id,
+                    "game_token": game_to_watch.game_token,
+                    "is_game_started": game_to_watch.is_game_started,
+                    "is_game_ended": game_to_watch.is_game_ended,
+                    "user_host_id": game_to_watch.user_host_id,
+                    "user_guest_id": game_to_watch.user_guest_id,
+                    "user_turn": game_to_watch.user_turn,
+                    "game_turn": game_to_watch.game_turn,
+                    "game_data": game_data,
+                    "winner": game_to_watch.winner,
+
+                }
+            else:
+                return jsonify({"error": f"You can't get connection to game"})
+            
+        else:
+            return jsonify({"error": f"Game is not available"})
+
+    
+    return jsonify({"game_info": message})
 
 
 

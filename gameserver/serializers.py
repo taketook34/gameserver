@@ -8,3 +8,7 @@ class UserSchema(Schema):
 class UserLoginSchema(Schema):
     nickname = fields.String(required=True)
     password = fields.String(required=True)
+
+class TicTacToeGameTurnSchema(Schema):
+    x = fields.Int(required=True, min=0, max=2)
+    y = fields.Int(required=True, min=0, max=2)

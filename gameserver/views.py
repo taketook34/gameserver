@@ -45,7 +45,7 @@ def missing_token_callback(error):
 
 @app.route('/home', methods=['GET'])
 def home():
-    return jsonify({"message": "This is main page"})
+    return jsonify({"message": "This is main page"}), 200
 
 
 @app.route('/user/register', methods=['POST'])
@@ -70,7 +70,7 @@ def register():
         }
 
 
-    return jsonify({"message": "succes", "user_data": user_data})
+    return jsonify({"message": "succes", "user_data": user_data}), 200
 
 @app.route('/user/all', methods=['GET'])
 @jwt_required()
@@ -86,7 +86,7 @@ def showusers():
             "email": user.email,
         })
     
-    return jsonify(to_return)
+    return jsonify(to_return), 200
 
 
 
@@ -118,7 +118,13 @@ def creategame():
     jwt_claims = verify_jwt_in_request()
     host_id = jwt_claims[1]["sub"]
     # проверить не участвует ли юзер в дургих играх
+
+
     with app.app_context():
+        for i in TicTacToeGame.query.filter_by(is_game_ended=0, is_game_started=1):
+            if host_id == i.user_host_id or host_id == i.user_guest_id:
+                return jsonify({"message": "User currently in another game"}), 203
+
         new_game = TicTacToeGame(
             game_token=os.urandom(6).hex(),
             user_host_id = host_id
@@ -139,7 +145,7 @@ def creategame():
             "date": new_game.created_at,
         }
 
-    return jsonify(message)
+    return jsonify(message), 201
 
 
 @app.route('/tic-tac-toe/all', methods=['GET'])
@@ -150,9 +156,10 @@ def allgames():
         games = TicTacToeGame.query.all()
 
         for game in games:
-            message.append({"id":game.id, "game_token":game.game_token, "host_id":game.user_host_id})
+            message.append({"id":game.id, "game_token":game.game_token, "host_id":game.user_host_id,
+             "is_game_started":game.is_game_started, "is_game_ended": game.is_game_ended})
         
-        return jsonify({'games': message})
+        return jsonify({'games': message}), 200
 
 @app.route('/tic-tac-toe/joingame/<game_token>', methods=['PUT'])
 @jwt_required()
@@ -167,14 +174,18 @@ def joingame(game_token):
     joiner_id = jwt_claims[1]["sub"]
     # проверить не участвует ли юзер в других играх
     with app.app_context():
+        for i in TicTacToeGame.query.filter_by(is_game_ended=0, is_game_started=1):
+            if joiner_id == i.user_host_id or joiner_id == i.user_guest_id:
+                return jsonify({"error": "User currently in another game"}), 403
+
         game_to_start = TicTacToeGame.query.filter_by(game_token=game_token).first()
 
         if game_to_start:
             if joiner_id == game_to_start.user_host_id:
-                return jsonify({"error": f"Host cant be a guest!"})
+                return jsonify({"error": f"Host cant be a guest!"}), 403
             
             if game_to_start.is_game_started == 1 or game_to_start.is_game_ended == 1:
-                return jsonify({"error": f"Game is not available"})
+                return jsonify({"error": f"Game is not available"}), 403
             
             
             game_to_start.user_guest_id = joiner_id
@@ -185,7 +196,7 @@ def joingame(game_token):
             db.session.add(game_to_start)
             db.session.commit()
 
-    return jsonify({"message": f"You conneted to {game_token} game"})
+    return jsonify({"message": f"You conneted to {game_token} game"}), 200
 
 
 
@@ -217,26 +228,26 @@ def gameturn(game_token):
         game_to_update = TicTacToeGame.query.filter_by(game_token=game_token).first()
 
         if not game_to_update:
-            return jsonify({"error": "Game not found"})
+            return jsonify({"error": "Game not found"}), 403
 
         if gamer_id != game_to_update.user_host_id and gamer_id != game_to_update.user_guest_id:
-            return jsonify({"error": "Game not found"})
-        
-        if game_to_update.is_game_started == 0:
-            return jsonify({"error": "Game not started"})
+            return jsonify({"error": "Wrong user"}), 403
         
         if game_to_update.is_game_ended == 1:
-            return jsonify({"error": "Game is over"})
+            return jsonify({"error": "Game is over", "winner": game_to_update.winner}), 403
+
+        if game_to_update.is_game_started == 0:
+            return jsonify({"error": "Game not started"}), 403
         
 
         if gamer_id != game_to_update.user_turn:
-            return jsonify({"error": "Not user turn"})
+            return jsonify({"error": "Not user turn"}), 203
 
         session = TicTacToeSession(filename_token=game_token, folder_name=app.config['FILES_FOLDER'])
         try:     
             session.update(turn_attempt['x'], turn_attempt['y'], gamer_id)
         except  CageIsFilledError as error:
-            return  jsonify({"error": f"{error.message}"})
+            return  jsonify({"error": f"{error}"}), 203
         
         game_data = session.loaded_data
 
@@ -252,6 +263,7 @@ def gameturn(game_token):
 
         if session.check_winner():
             game_to_update.is_game_ended = 1
+            game_to_update.is_game_started = 0
             game_to_update.winner = gamer_id
 
         db.session.add(game_to_update)
@@ -294,12 +306,6 @@ def gameinfo(game_token):
         if game_to_watch:
             if gamer_id == game_to_watch.user_host_id or gamer_id == game_to_watch.user_guest_id:
                 
-                # user_turn = 0
-                # if game_to_watch.user_turn == 0:
-                #     user_turn = game_to_watch.user_host_id
-                # else:
-                #     user_turn = game_to_watch.user_guest_id
-
 
                 # download data using module
                 session = TicTacToeSession(filename_token=game_token, folder_name=app.config['FILES_FOLDER'])
@@ -319,10 +325,10 @@ def gameinfo(game_token):
 
                 }
             else:
-                return jsonify({"error": f"You can't get connection to game"})
+                return jsonify({"error": f"You can't get connection to game"}), 403
             
         else:
-            return jsonify({"error": f"Game is not available"})
+            return jsonify({"error": f"Game is not available"}), 403
 
     
     return jsonify({"game_info": message})
@@ -352,8 +358,8 @@ def deletegame(game_token):
                 db.session.commit()
 
             else:
-                return jsonify({"error": "You cannot delete game!"})
+                return jsonify({"error": "You cannot delete game!"}), 403
         else:
-            return jsonify({"error": "Game with this token doesn\'t exist"})
+            return jsonify({"error": "Game with this token doesn\'t exist"}), 404
 
-    return jsonify({"message": f"Succes deletion game {game_token}"})
+    return jsonify({"message": f"Succes deletion game {game_token}"}), 200

@@ -1,39 +1,37 @@
-<p style="font-size: 24px;">Игровой веб сервер:</p>
+<p style="font-size: 24px;">Game server:</p>
 
-Игры:
-1. Крестики нолики
+Games:
+1. Tic-Tac-Toe
 
 <p style="font-size: 20px;">Структура проекта:</p>
 
-Веб сервер который выдает данные игровой сесси и веб клиент который берет эти данные и выводит их пользователю.
+A web server that outputs data to the game session and a web client that takes that data and outputs it to the user.
 
 <p style="font-size: 20px;">Структура БД:</p>
 
-<p><b>Пользователь:</b></p>
-Имя 
-пароль
-В игре (да/нет)
-У пользователя будет свой токен при авторизации.
+<p><b>User:</b></p>
+Name 
+password
+In game (yes/no)
+The user will have their own token when authorised.
 
-####Игровая сессия крестиков-ноликов:
-Токен комнаты
-статус начала игры (да/нет)
-статус окончания игры(да/нет)
-пользователь-хоста
-пользователь-гостя
-очередь хода (пользователь)
-номер хода
-данные игровой карты (надо продумать как их хранить)
-победитель (пользователь)
+####Game session of cross zero tokens:
+Room token
+game start status (yes/no)
+game end status (yes/no)
+host user
+guest user
+turn queue (user)
+move number
+game card data (we need to think how to store them)
+winner (user)
 
-<p style="font-size: 20px;">Ендпоинты:</p>
+<p style="font-size: 20px;">Endpoints:</p>
 
-<b>/home</b>
-информативный ендпоинт, просто тестовый
 
 <b>/register POST</b>
-Регистрация 
-ДОСТУП: все юзеры
+Registration
+Acces: all users
 <pre>
 SEND: 
 {
@@ -56,8 +54,8 @@ SEND:
 </pre>
 
 <b>/login </b>
-Авторизация 
-ДОСТУП: все 
+Autorisation
+Access: all
 <pre>
 SEND: POST
 {
@@ -80,8 +78,8 @@ SEND: POST
 </pre>
 
 <b>/tic-tac-toe/creategame GET</b>
-Создание игры
-ДОСТУП: зарегистрированый пользователь
+Game room creation
+Access: autorised user
 
 <pre>
 SEND: GET
@@ -96,7 +94,7 @@ SEND: GET
     "date": "Fri, 24 May 2024 08:57:55 GMT",
 }
 
-203 (если пользователь нахоится в другой игре уже):
+203 (if user in another game):
 {
     "message": "User currently in another game"
 }
@@ -104,34 +102,34 @@ SEND: GET
 
 </pre>
 
-####/tic-tac-toe/joingame/<токен игровой сессии> GET
-ДОСТУП: Любой пользователь кроме хоста не в игре (проверять по токену)
-присоиденение пользователя гостя, начало игры. возвращает True/False если подключение получилось/не вышло
+####/tic-tac-toe/joingame/&lt;game session token&gt; GET
+ACCESS: Any user except the host not in the game (check by token)
+Joining a guest user, starting the game. Returns True/False if the connection was successful/failed
 
 <pre>
 SEND: GET
 
-200: 
+200:
 {"message": f"You conneted to {game_token} game"}
 
-403 (если пользователь нахоится в другой игре уже):
+403 (if the user is already in another game):
 {
     "message": "User currently in another game"
 }
 
-403 (Если хост подклчается к своей же игре):
+403 (If the host connects to his own game):
 {"error": f"Host cant be a guest!"}
 
-403 (если игра не найдена)
+403 (if game not found)
 {"error": f"Game is not available"}
 
 
 </pre>
 
 
-<b>/tic-tac-toe/game-turn/&ltтокен игровой сессии> POST</b>
-ДОСТУП: игрок хост и игрок гост у которого ход (проверять по токену)
-Пользователь отправляет на сервер свое измение игровой карты
+<b>/tic-tac-toe/game-turn/&lt;game session token&gt; POST</b>
+ACCESS: host player and guest player whose turn (check by token)
+The user sends their game map change to the server
 
 <pre>
 SEND: POST 
@@ -163,19 +161,19 @@ SEND: POST
 
 }
 
-403 (игра не существует):
+403 (game does not exist):
 {"error": "Game not found"}
 
-403 (если юзер не участник игры) 
+403 (if user is not a game participant)
 {"error": "Wrong user"}
 
-403 (игра уже окончена)
+403 (game is over)
 {"error": "Game is over", "winner": &lt;айди юзера&gt;}
 
-403 (игра не начата)
+403 (game not started)
 {"error": "Game not started"}
 
-203 (если хо другого игрока)
+203 (another pkayer turn)
 {"error": "Not user turn"}
 
 203
@@ -184,18 +182,18 @@ SEND: POST
 
 </pre>
 
-<b>/tic-tac-toe/game-info/&lt;токен игровой сессии&gt; GET</b>
-ДОСТУП: игрок хост и игрок гост (проверять по токену)
-возвращение всех игровых данных сессии. если игра окончена то происходит выведение окончательных данных игры которые не изменяются
+/tic-tac-toe/game-info/&lt;game session token&gt; GET
+ACCESS: host player and guest player (check by token)
+Returns all game session data. If the game is over, the final game data is displayed, which does not change.
 
 <pre>
-200 (запрос успешный):
+200 (successful request):
 {
-    "message": "Succesful attempt to make turn", 
-    "game_data": 
+    "message": "Successful attempt to get game info",
+    "game_data":
     {
         "id": 12,
-        "game_token": sdfgsf123,
+        "game_token": "sdfgsf123",
         "is_game_started": 1,
         "is_game_ended": 0,
         "user_host_id": 1,
@@ -207,23 +205,23 @@ SEND: POST
             [0, 0, 0],
             [0, 0, 0]
         ],
-        "winner": none,
+        "winner": "none",
     },
 
 }
 </pre>
 
-<b>/tic-tac-toe/deletegame/&lt;токен игровой сессии&gt; DELETE</b>
-ДОСТУП: игрок хост и игрок гость  (проверять по токену) 
-удаление игры (удаление записи в базе данных)
+/tic-tac-toe/deletegame/&lt;game session token&gt; DELETE
+ ACCESS: host player and guest player (check by token)
+ Deletes the game (deletes the record from the database)
 
 <pre>
-200 (запрос успешный):
-{"message": f"Succes deletion game sdfsdf123"}
+200 (successful request):
+{"message": f"Successful deletion of game sdfsdf123"}
 
-403 (пользователь не хост игры)
+403 (user is not the game host)
 {"error": "You cannot delete game!"}
 
-403 (пользователь )
-{"error": "Game with this token doesn\'t exist"}
+403 (wrong game session token )
+{"error": "Game with this token doesn't exist"}
 </pre>

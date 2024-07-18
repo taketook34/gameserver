@@ -7,24 +7,6 @@ Games:
 
 A web server that outputs data to the game session and a web client that takes that data and outputs it to the user.
 
-<p style="font-size: 20px;">Структура БД:</p>
-
-<p><b>User:</b></p>
-Name 
-password
-In game (yes/no)
-The user will have their own token when authorised.
-
-####Game session of cross zero tokens:
-Room token
-game start status (yes/no)
-game end status (yes/no)
-host user
-guest user
-turn queue (user)
-move number
-game card data (we need to think how to store them)
-winner (user)
 
 <p style="font-size: 20px;">Endpoints:</p>
 
